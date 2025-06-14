@@ -708,44 +708,109 @@ werkzeug==2.3.7
 gunicorn==21.2.0
 click==8.1.7
 
-3. CREATE Procfile (for Railway/Heroku):
+3. CREATE Procfile (REQUIRED for Railway/Heroku):
 web: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
 
-4. CREATE runtime.txt (optional):
-python-3.11.5
+4. CREATE railway.json (REQUIRED for Railway):
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS"
+  },
+  "deploy": {
+    "startCommand": "gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120",
+    "numReplicas": 1,
+    "sleepApplication": false,
+    "restartPolicyType": "ON_FAILURE"
+  }
+}
 
-5. LOCAL TESTING:
+5. CREATE .gitignore:
+__pycache__/
+*.pyc
+uploads/
+.env
+*.log
+
+6. DEPLOYMENT STEPS:
+
+OPTION A - Railway (Recommended):
+git init
+git add .
+git commit -m "Initial commit"
+git remote add origin <your-github-repo-url>
+git push -u origin main
+
+Then:
+- Go to railway.app
+- New Project → Deploy from GitHub repo
+- Select your repository
+- Railway will auto-deploy
+
+OPTION B - If Railway fails, use these alternatives:
+
+HEROKU:
+heroku create your-app-name
+git push heroku main
+
+RENDER:
+- Connect GitHub repo to render.com
+- Set start command: gunicorn app:app --bind 0.0.0.0:$PORT
+
+VERCEL (with serverless):
+- Install vercel CLI: npm i -g vercel
+- Create vercel.json:
+{
+  "builds": [{"src": "app.py", "use": "@vercel/python"}],
+  "routes": [{"src": "/(.*)", "dest": "app.py"}]
+}
+
+7. LOCAL TESTING:
 pip install -r requirements.txt
 python app.py
+# Visit: http://localhost:5000
 
-6. RAILWAY DEPLOYMENT:
-- Create GitHub repo
-- Push files (app.py, requirements.txt, Procfile)
-- Connect repo to Railway
-- Deploy automatically
+8. TROUBLESHOOTING RAILWAY DEPLOYMENT:
 
-7. FEATURES INCLUDED:
-✅ VLSI & Embedded Skills Detection
+ERROR: "No start command found"
+SOLUTION: Ensure you have BOTH Procfile AND railway.json
+
+ERROR: "Build failed"
+SOLUTION: Check requirements.txt formatting (no extra spaces)
+
+ERROR: "App crashed"
+SOLUTION: Check logs, usually NLTK download issues (app has fallbacks)
+
+ERROR: "Port binding failed"
+SOLUTION: App uses $PORT environment variable (already configured)
+
+9. QUICK FILES CHECKLIST:
+□ app.py (this file)
+□ requirements.txt 
+□ Procfile
+□ railway.json
+□ .gitignore (optional)
+
+10. FEATURES INCLUDED:
+✅ VLSI & Embedded Skills Detection (100+ terms)
 ✅ PDF, DOC, DOCX, TXT Support  
-✅ Smart Matching Algorithm
+✅ Smart Matching Algorithm (4-factor scoring)
 ✅ Web Interface + REST API
 ✅ Cloud Deployment Ready
 ✅ Error Handling & Fallbacks
 ✅ Team Collaboration Ready
 
-8. USAGE:
+11. USAGE:
 - Web: Upload JD + profiles, get ranked results
 - API: POST /api/match with JSON data
-- Skills: Automatically detects 100+ technical skills
-- Matching: 4-factor scoring (skills, experience, education, similarity)
+- Skills: Automatically detects technical skills
+- Matching: Skills(40%) + Experience(20%) + Education(10%) + Similarity(30%)
 
-9. CUSTOMIZATION:
-- Adjust weights in calculate_match_score()
-- Add more skill patterns in extract_skills()
-- Modify UI in HTML template strings
+12. POST-DEPLOYMENT:
+- Test with sample JD and profiles
+- Share URL with your team
+- Monitor via Railway dashboard
+- Scale up if needed (Railway auto-scales)
 
-10. TROUBLESHOOTING:
-- If deployment fails: Check logs, verify requirements.txt
-- Missing dependencies: App has fallbacks for all optional libraries
-- File upload issues: Check file formats and size limits
+If Railway still fails, the app works identically on Heroku, Render, or any Python hosting platform.
 """
