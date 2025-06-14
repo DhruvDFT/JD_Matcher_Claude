@@ -424,7 +424,10 @@ INDEX_HTML = """
         .api-info { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-top: 30px; }
         .api-info code { background: #f1f2f6; padding: 2px 5px; border-radius: 3px; font-family: 'Courier New', monospace; }
         .api-info pre { background: #2c3e50; color: white; padding: 15px; border-radius: 5px; overflow-x: auto; margin-top: 10px; }
-        @media (max-width: 768px) { .container { padding: 10px; } }
+        .input-method-toggle { display: flex; gap: 20px; margin-bottom: 10px; }
+        .input-method-toggle label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+        .input-method-toggle input[type="radio"] { margin: 0; }
+        #jd_text { width: 100%; min-height: 200px; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-family: inherit; resize: vertical; }
     </style>
 </head>
 <body>
@@ -446,9 +449,36 @@ INDEX_HTML = """
 
         <form method="POST" action="{{ url_for('upload_files') }}" enctype="multipart/form-data" class="upload-form">
             <div class="form-group">
-                <label for="jd_file">Job Description (PDF, DOC, DOCX, TXT)</label>
-                <input type="file" id="jd_file" name="jd_file" accept=".pdf,.doc,.docx,.txt" required>
+                <label>Job Description Input Method</label>
+                <div class="input-method-toggle">
+                    <label><input type="radio" name="jd_method" value="file" checked onchange="toggleJDInput()"> Upload File</label>
+                    <label><input type="radio" name="jd_method" value="text" onchange="toggleJDInput()"> Type/Paste Text</label>
+                </div>
+            </div>
+
+            <div id="jd_file_input" class="form-group">
+                <label for="jd_file">Job Description File (PDF, DOC, DOCX, TXT)</label>
+                <input type="file" id="jd_file" name="jd_file" accept=".pdf,.doc,.docx,.txt">
                 <small>Upload the job description file</small>
+            </div>
+
+            <div id="jd_text_input" class="form-group" style="display: none;">
+                <label for="jd_text">Job Description Text</label>
+                <textarea id="jd_text" name="jd_text" placeholder="Paste or type the job description here...
+
+Example:
+Software Engineer Position
+Requirements:
+- 3+ years experience in Python/JavaScript
+- Experience with React, Django, SQL
+- Knowledge of VLSI, embedded systems preferred
+- Bachelor's degree in Computer Science or related field
+
+Responsibilities:
+- Develop web applications
+- Work with hardware interfaces
+- Collaborate with cross-functional teams"></textarea>
+                <small>Copy and paste the job description text directly</small>
             </div>
 
             <div class="form-group">
@@ -466,6 +496,26 @@ INDEX_HTML = """
         </form>
 
         <script>
+            function toggleJDInput() {
+                const method = document.querySelector('input[name="jd_method"]:checked').value;
+                const fileInput = document.getElementById('jd_file_input');
+                const textInput = document.getElementById('jd_text_input');
+                const fileField = document.getElementById('jd_file');
+                const textField = document.getElementById('jd_text');
+                
+                if (method === 'file') {
+                    fileInput.style.display = 'block';
+                    textInput.style.display = 'none';
+                    fileField.required = true;
+                    textField.required = false;
+                } else {
+                    fileInput.style.display = 'none';
+                    textInput.style.display = 'block';
+                    fileField.required = false;
+                    textField.required = true;
+                }
+            }
+
             document.querySelector('form').addEventListener('submit', function() {
                 document.getElementById('loading').style.display = 'block';
                 document.querySelector('.btn-primary').disabled = true;
@@ -609,17 +659,61 @@ def upload_files():
     try:
         print("=== DEBUG: Starting file upload process ===")
         
-        # Check if JD file is uploaded
-        if 'jd_file' not in request.files:
-            flash('No JD file uploaded', 'error')
-            return redirect(url_for('index'))
+        # Check JD input method
+        jd_method = request.form.get('jd_method', 'file')
+        print(f"DEBUG: JD input method: {jd_method}")
         
-        jd_file = request.files['jd_file']
-        if jd_file.filename == '':
-            flash('No JD file selected', 'error')
-            return redirect(url_for('index'))
+        # Get JD content based on method
+        jd_text = ""
+        if jd_method == 'text':
+            # Get JD from text input
+            jd_text = request.form.get('jd_text', '').strip()
+            if not jd_text:
+                flash('Please enter job description text', 'error')
+                return redirect(url_for('index'))
+            print(f"DEBUG: JD text input received, length: {len(jd_text)}")
+            
+        else:
+            # Get JD from file upload
+            if 'jd_file' not in request.files:
+                flash('No JD file uploaded', 'error')
+                return redirect(url_for('index'))
+            
+            jd_file = request.files['jd_file']
+            if jd_file.filename == '':
+                flash('No JD file selected', 'error')
+                return redirect(url_for('index'))
+            
+            print(f"DEBUG: JD file received: {jd_file.filename}")
+            
+            # Process JD file
+            if jd_file and allowed_file(jd_file.filename):
+                jd_filename = secure_filename(jd_file.filename)
+                jd_path = os.path.join(app.config['UPLOAD_FOLDER'], jd_filename)
+                jd_file.save(jd_path)
+                
+                print(f"DEBUG: Processing JD file: {jd_path}")
+                
+                try:
+                    jd_text = extract_text_from_file(jd_path)
+                    print(f"DEBUG: JD text extracted, length: {len(jd_text)}")
+                    
+                except Exception as e:
+                    print(f"DEBUG: Error processing JD file: {e}")
+                    flash(f'Error reading JD file: {str(e)}', 'error')
+                    return redirect(url_for('index'))
+                finally:
+                    # Clean up JD file
+                    if os.path.exists(jd_path):
+                        os.remove(jd_path)
+            else:
+                flash('Invalid JD file type. Please upload TXT, PDF, DOC, or DOCX files.', 'error')
+                return redirect(url_for('index'))
         
-        print(f"DEBUG: JD file received: {jd_file.filename}")
+        # Parse JD text
+        print(f"DEBUG: JD text preview: {jd_text[:200]}...")
+        jd_data = parse_jd(jd_text)
+        print(f"DEBUG: JD parsed - Skills: {len(jd_data.get('required_skills', set()))}, Experience: {jd_data.get('min_experience', 0)}")
         
         # Check if profile files are uploaded
         if 'profile_files' not in request.files:
@@ -633,60 +727,34 @@ def upload_files():
         
         print(f"DEBUG: Profile files received: {[f.filename for f in profile_files]}")
         
-        # Process JD file
-        if jd_file and allowed_file(jd_file.filename):
-            jd_filename = secure_filename(jd_file.filename)
-            jd_path = os.path.join(app.config['UPLOAD_FOLDER'], jd_filename)
-            jd_file.save(jd_path)
-            
-            print(f"DEBUG: Processing JD file: {jd_path}")
-            
-            # Extract and parse JD
-            try:
-                jd_text = extract_text_from_file(jd_path)
-                print(f"DEBUG: JD text extracted, length: {len(jd_text)}")
-                print(f"DEBUG: JD text preview: {jd_text[:200]}...")
+        # Process profile files
+        profiles = []
+        for i, profile_file in enumerate(profile_files):
+            if profile_file and allowed_file(profile_file.filename):
+                profile_filename = secure_filename(profile_file.filename)
+                profile_path = os.path.join(app.config['UPLOAD_FOLDER'], profile_filename)
+                profile_file.save(profile_path)
                 
-                jd_data = parse_jd(jd_text)
-                print(f"DEBUG: JD parsed - Skills: {len(jd_data.get('required_skills', set()))}, Experience: {jd_data.get('min_experience', 0)}")
+                print(f"DEBUG: Processing profile {i+1}: {profile_filename}")
                 
-            except Exception as e:
-                print(f"DEBUG: Error processing JD file: {e}")
-                flash(f'Error reading JD file: {str(e)}', 'error')
-                return redirect(url_for('index'))
-            
-            # Process profile files
-            profiles = []
-            for i, profile_file in enumerate(profile_files):
-                if profile_file and allowed_file(profile_file.filename):
-                    profile_filename = secure_filename(profile_file.filename)
-                    profile_path = os.path.join(app.config['UPLOAD_FOLDER'], profile_filename)
-                    profile_file.save(profile_path)
+                try:
+                    # Extract and parse profile
+                    profile_text = extract_text_from_file(profile_path)
+                    print(f"DEBUG: Profile {i+1} text extracted, length: {len(profile_text)}")
                     
-                    print(f"DEBUG: Processing profile {i+1}: {profile_filename}")
+                    profile_data = parse_profile(profile_text)
+                    profile_data['filename'] = profile_filename
+                    profiles.append(profile_data)
                     
-                    try:
-                        # Extract and parse profile
-                        profile_text = extract_text_from_file(profile_path)
-                        print(f"DEBUG: Profile {i+1} text extracted, length: {len(profile_text)}")
-                        
-                        profile_data = parse_profile(profile_text)
-                        profile_data['filename'] = profile_filename
-                        profiles.append(profile_data)
-                        
-                        print(f"DEBUG: Profile {i+1} parsed - Skills: {len(profile_data.get('skills', set()))}, Experience: {profile_data.get('experience_years', 0)}")
-                        
-                    except Exception as e:
-                        print(f"DEBUG: Error processing profile {profile_filename}: {e}")
-                        flash(f'Error reading profile {profile_filename}: {str(e)}', 'error')
-                    finally:
-                        # Clean up uploaded file
-                        if os.path.exists(profile_path):
-                            os.remove(profile_path)
-            
-            # Clean up JD file
-            if os.path.exists(jd_path):
-                os.remove(jd_path)
+                    print(f"DEBUG: Profile {i+1} parsed - Skills: {len(profile_data.get('skills', set()))}, Experience: {profile_data.get('experience_years', 0)}")
+                    
+                except Exception as e:
+                    print(f"DEBUG: Error processing profile {profile_filename}: {e}")
+                    flash(f'Error reading profile {profile_filename}: {str(e)}', 'error')
+                finally:
+                    # Clean up uploaded file
+                    if os.path.exists(profile_path):
+                        os.remove(profile_path)
             
             print(f"DEBUG: Successfully processed {len(profiles)} profiles")
             
@@ -789,15 +857,15 @@ DEPLOYMENT INSTRUCTIONS:
 1. SAVE THIS FILE:
    - Save as 'app.py'
 
-2. CREATE requirements.txt (FIXED VERSION):
+2. CREATE requirements.txt (FIXED - ADDED python-docx):
 Flask==2.3.2
+gunicorn==20.1.0
 PyPDF2==3.0.1
 python-docx==0.8.11
 nltk==3.8.1
 scikit-learn==1.3.0
 numpy==1.24.3
 werkzeug==2.3.6
-gunicorn==20.1.0
 
 3. CREATE Procfile (REQUIRED for Railway/Heroku):
 web: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
