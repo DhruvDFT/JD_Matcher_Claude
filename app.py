@@ -97,36 +97,56 @@ def allowed_file(filename):
 
 # Text processing functions
 def extract_text_from_file(file_path: str) -> str:
-    """Extract text from various file formats"""
+    """Extract text from various file formats with detailed logging"""
     _, ext = os.path.splitext(file_path.lower())
+    print(f"DEBUG: Extracting text from {ext} file: {file_path}")
     
     if ext == '.txt':
-        with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
-            return file.read()
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
+                content = file.read()
+                print(f"DEBUG: TXT file read successfully, length: {len(content)}")
+                return content
+        except Exception as e:
+            print(f"DEBUG: Error reading TXT file: {e}")
+            raise ValueError(f"Could not read TXT file: {e}")
     
-    elif ext == '.pdf' and PDF_AVAILABLE:
+    elif ext == '.pdf':
+        if not PDF_AVAILABLE:
+            raise ValueError("PDF support not available. Please install PyPDF2 or use TXT files.")
+        
         text = ""
         try:
             with open(file_path, 'rb') as file:
                 pdf_reader = PyPDF2.PdfReader(file)
-                for page in pdf_reader.pages:
-                    text += page.extract_text() + "\n"
-            return text
+                print(f"DEBUG: PDF has {len(pdf_reader.pages)} pages")
+                for i, page in enumerate(pdf_reader.pages):
+                    page_text = page.extract_text()
+                    text += page_text + "\n"
+                    print(f"DEBUG: Page {i+1} extracted {len(page_text)} characters")
+                print(f"DEBUG: PDF extraction complete, total length: {len(text)}")
+                return text
         except Exception as e:
+            print(f"DEBUG: Error reading PDF file: {e}")
             raise ValueError(f"Could not read PDF file: {e}")
     
-    elif ext in ['.doc', '.docx'] and DOCX_AVAILABLE:
+    elif ext in ['.doc', '.docx']:
+        if not DOCX_AVAILABLE:
+            raise ValueError("DOC/DOCX support not available. Please install python-docx or use TXT files.")
+        
         try:
             doc = docx.Document(file_path)
             text = ""
-            for paragraph in doc.paragraphs:
+            for i, paragraph in enumerate(doc.paragraphs):
                 text += paragraph.text + "\n"
+            print(f"DEBUG: DOC/DOCX extraction complete, {len(doc.paragraphs)} paragraphs, total length: {len(text)}")
             return text
         except Exception as e:
+            print(f"DEBUG: Error reading DOC/DOCX file: {e}")
             raise ValueError(f"Could not read DOC/DOCX file: {e}")
     
     else:
-        raise ValueError(f"Unsupported file format or missing dependencies for: {ext}")
+        raise ValueError(f"Unsupported file format: {ext}. Supported: .txt, .pdf, .doc, .docx")
 
 def clean_text(text: str) -> str:
     """Clean and normalize text"""
@@ -437,8 +457,21 @@ INDEX_HTML = """
                 <small>Select multiple candidate profile files (hold Ctrl/Cmd to select multiple)</small>
             </div>
 
-            <button type="submit" class="btn-primary">Match Profiles</button>
+            <button type="submit" class="btn-primary">🚀 Start Matching</button>
+            
+            <div id="loading" style="display: none; text-align: center; margin-top: 20px;">
+                <p>🔄 Processing files and matching profiles...</p>
+                <p>This may take a few moments for large files.</p>
+            </div>
         </form>
+
+        <script>
+            document.querySelector('form').addEventListener('submit', function() {
+                document.getElementById('loading').style.display = 'block';
+                document.querySelector('.btn-primary').disabled = true;
+                document.querySelector('.btn-primary').textContent = 'Processing...';
+            });
+        </script>
 
         <div class="api-info">
             <h3>🚀 Deployment Ready</h3>
@@ -574,6 +607,8 @@ def index():
 @app.route('/upload', methods=['POST'])
 def upload_files():
     try:
+        print("=== DEBUG: Starting file upload process ===")
+        
         # Check if JD file is uploaded
         if 'jd_file' not in request.files:
             flash('No JD file uploaded', 'error')
@@ -583,6 +618,8 @@ def upload_files():
         if jd_file.filename == '':
             flash('No JD file selected', 'error')
             return redirect(url_for('index'))
+        
+        print(f"DEBUG: JD file received: {jd_file.filename}")
         
         # Check if profile files are uploaded
         if 'profile_files' not in request.files:
@@ -594,48 +631,100 @@ def upload_files():
             flash('No profile files selected', 'error')
             return redirect(url_for('index'))
         
+        print(f"DEBUG: Profile files received: {[f.filename for f in profile_files]}")
+        
         # Process JD file
         if jd_file and allowed_file(jd_file.filename):
             jd_filename = secure_filename(jd_file.filename)
             jd_path = os.path.join(app.config['UPLOAD_FOLDER'], jd_filename)
             jd_file.save(jd_path)
             
+            print(f"DEBUG: Processing JD file: {jd_path}")
+            
             # Extract and parse JD
-            jd_text = extract_text_from_file(jd_path)
-            jd_data = parse_jd(jd_text)
+            try:
+                jd_text = extract_text_from_file(jd_path)
+                print(f"DEBUG: JD text extracted, length: {len(jd_text)}")
+                print(f"DEBUG: JD text preview: {jd_text[:200]}...")
+                
+                jd_data = parse_jd(jd_text)
+                print(f"DEBUG: JD parsed - Skills: {len(jd_data.get('required_skills', set()))}, Experience: {jd_data.get('min_experience', 0)}")
+                
+            except Exception as e:
+                print(f"DEBUG: Error processing JD file: {e}")
+                flash(f'Error reading JD file: {str(e)}', 'error')
+                return redirect(url_for('index'))
             
             # Process profile files
             profiles = []
-            for profile_file in profile_files:
+            for i, profile_file in enumerate(profile_files):
                 if profile_file and allowed_file(profile_file.filename):
                     profile_filename = secure_filename(profile_file.filename)
                     profile_path = os.path.join(app.config['UPLOAD_FOLDER'], profile_filename)
                     profile_file.save(profile_path)
                     
-                    # Extract and parse profile
-                    profile_text = extract_text_from_file(profile_path)
-                    profile_data = parse_profile(profile_text)
-                    profile_data['filename'] = profile_filename
-                    profiles.append(profile_data)
+                    print(f"DEBUG: Processing profile {i+1}: {profile_filename}")
                     
-                    # Clean up uploaded file
-                    os.remove(profile_path)
+                    try:
+                        # Extract and parse profile
+                        profile_text = extract_text_from_file(profile_path)
+                        print(f"DEBUG: Profile {i+1} text extracted, length: {len(profile_text)}")
+                        
+                        profile_data = parse_profile(profile_text)
+                        profile_data['filename'] = profile_filename
+                        profiles.append(profile_data)
+                        
+                        print(f"DEBUG: Profile {i+1} parsed - Skills: {len(profile_data.get('skills', set()))}, Experience: {profile_data.get('experience_years', 0)}")
+                        
+                    except Exception as e:
+                        print(f"DEBUG: Error processing profile {profile_filename}: {e}")
+                        flash(f'Error reading profile {profile_filename}: {str(e)}', 'error')
+                    finally:
+                        # Clean up uploaded file
+                        if os.path.exists(profile_path):
+                            os.remove(profile_path)
             
             # Clean up JD file
-            os.remove(jd_path)
+            if os.path.exists(jd_path):
+                os.remove(jd_path)
+            
+            print(f"DEBUG: Successfully processed {len(profiles)} profiles")
+            
+            
+            if not profiles:
+                flash('No valid profiles could be processed. Please check your file formats.', 'error')
+                return redirect(url_for('index'))
             
             # Calculate matches
+            print("DEBUG: Starting matching process...")
             matches = []
-            for profile in profiles:
-                score = calculate_match_score(jd_data, profile)
-                matches.append({
-                    'profile': profile,
-                    'score': score,
-                    'percentage': round(score * 100, 1)
-                })
+            for i, profile in enumerate(profiles):
+                try:
+                    score = calculate_match_score(jd_data, profile)
+                    match_data = {
+                        'profile': profile,
+                        'score': score,
+                        'percentage': round(score * 100, 1)
+                    }
+                    matches.append(match_data)
+                    print(f"DEBUG: Profile {i+1} ({profile.get('filename', 'Unknown')}) - Score: {score:.3f} ({match_data['percentage']}%)")
+                except Exception as e:
+                    print(f"DEBUG: Error calculating match for profile {i+1}: {e}")
+                    # Add with 0 score if calculation fails
+                    matches.append({
+                        'profile': profile,
+                        'score': 0.0,
+                        'percentage': 0.0
+                    })
             
             # Rank profiles by match score
             ranked_matches = rank_profiles(matches)
+            print(f"DEBUG: Ranked {len(ranked_matches)} matches")
+            
+            # Debug output for template
+            print("DEBUG: Preparing template data...")
+            print(f"DEBUG: JD Skills: {list(jd_data.get('required_skills', set()))[:5]}...")  # Show first 5 skills
+            print(f"DEBUG: Top match: {ranked_matches[0]['percentage']}%" if ranked_matches else "No matches")
             
             return render_template_string(RESULTS_HTML, 
                                         jd_data=jd_data, 
@@ -646,6 +735,9 @@ def upload_files():
             return redirect(url_for('index'))
             
     except Exception as e:
+        print(f"DEBUG: Fatal error in upload_files: {e}")
+        import traceback
+        traceback.print_exc()
         flash(f'Error processing files: {str(e)}', 'error')
         return redirect(url_for('index'))
 
@@ -697,120 +789,136 @@ DEPLOYMENT INSTRUCTIONS:
 1. SAVE THIS FILE:
    - Save as 'app.py'
 
-2. CREATE requirements.txt:
-Flask==2.3.3
+2. CREATE requirements.txt (FIXED VERSION):
+Flask==2.3.2
 PyPDF2==3.0.1
 python-docx==0.8.11
 nltk==3.8.1
 scikit-learn==1.3.0
 numpy==1.24.3
-werkzeug==2.3.7
-gunicorn==21.2.0
-click==8.1.7
+werkzeug==2.3.6
+gunicorn==20.1.0
 
 3. CREATE Procfile (REQUIRED for Railway/Heroku):
 web: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
 
-4. CREATE railway.json (REQUIRED for Railway):
+4. CREATE railway.json (ALTERNATIVE CONFIG):
 {
-  "$schema": "https://railway.app/railway.schema.json",
   "build": {
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120",
-    "numReplicas": 1,
-    "sleepApplication": false,
+    "startCommand": "gunicorn app:app --host 0.0.0.0 --port $PORT",
     "restartPolicyType": "ON_FAILURE"
   }
 }
 
-5. CREATE .gitignore:
+5. CREATE runtime.txt (SPECIFY PYTHON VERSION):
+python-3.9.18
+
+6. CREATE .gitignore:
 __pycache__/
 *.pyc
 uploads/
 .env
 *.log
+venv/
 
-6. DEPLOYMENT STEPS:
+7. MINIMAL requirements.txt (IF ABOVE FAILS):
+Flask==2.3.2
+gunicorn==20.1.0
+werkzeug==2.3.6
 
-OPTION A - Railway (Recommended):
-git init
-git add .
-git commit -m "Initial commit"
-git remote add origin <your-github-repo-url>
-git push -u origin main
+8. DEPLOYMENT TROUBLESHOOTING:
 
-Then:
-- Go to railway.app
-- New Project → Deploy from GitHub repo
-- Select your repository
-- Railway will auto-deploy
+ISSUE: pip install fails (exit code 2)
+SOLUTIONS (try in order):
 
-OPTION B - If Railway fails, use these alternatives:
+A) Use minimal requirements first:
+Flask==2.3.2
+gunicorn==20.1.0
 
-HEROKU:
+B) Force older Python version in runtime.txt:
+python-3.9.18
+
+C) Alternative Railway deployment method:
+- Delete railway.json
+- Railway will auto-detect Python
+- Uses default pip install
+
+D) Use Docker deployment on Railway:
+Create Dockerfile:
+FROM python:3.9-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+EXPOSE 5000
+CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:5000"]
+
+9. ALTERNATIVE DEPLOYMENT PLATFORMS:
+
+HEROKU (Most Reliable):
 heroku create your-app-name
 git push heroku main
 
-RENDER:
-- Connect GitHub repo to render.com
-- Set start command: gunicorn app:app --bind 0.0.0.0:$PORT
+RENDER (Free, Easy):
+- Connect GitHub to render.com
+- Build command: pip install -r requirements.txt
+- Start command: gunicorn app:app --bind 0.0.0.0:$PORT
 
-VERCEL (with serverless):
-- Install vercel CLI: npm i -g vercel
-- Create vercel.json:
-{
-  "builds": [{"src": "app.py", "use": "@vercel/python"}],
-  "routes": [{"src": "/(.*)", "dest": "app.py"}]
-}
+RAILWAY ALTERNATIVE SETUP:
+- Remove all config files except app.py and requirements.txt
+- Let Railway auto-detect everything
+- Use minimal requirements.txt
 
-7. LOCAL TESTING:
-pip install -r requirements.txt
+10. STEP-BY-STEP FIX:
+
+Step 1: Try minimal requirements.txt:
+Flask==2.3.2
+gunicorn==20.1.0
+
+Step 2: If that works, gradually add:
+Flask==2.3.2
+gunicorn==20.1.0
+PyPDF2==3.0.1
+python-docx==0.8.11
+
+Step 3: Then add ML libraries:
+Flask==2.3.2
+gunicorn==20.1.0
+PyPDF2==3.0.1
+python-docx==0.8.11
+nltk==3.8.1
+scikit-learn==1.3.0
+numpy==1.24.3
+
+11. EMERGENCY DEPLOYMENT (No external libraries):
+If all else fails, the app has fallbacks and will work with just Flask!
+
+Basic requirements.txt:
+Flask==2.3.2
+gunicorn==20.1.0
+
+The app will:
+- ✅ Still work for TXT files
+- ✅ Use fallback text processing
+- ✅ Provide basic matching
+- ❌ No PDF/DOC support (use TXT instead)
+- ❌ Simpler text analysis
+
+12. LOCAL TESTING FIRST:
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install Flask gunicorn
 python app.py
-# Visit: http://localhost:5000
+# Test at localhost:5000
 
-8. TROUBLESHOOTING RAILWAY DEPLOYMENT:
+13. DEPLOYMENT ORDER OF PREFERENCE:
+1. Heroku (most reliable)
+2. Render (free tier)
+3. Railway (if config issues resolved)
+4. Local + ngrok for team sharing
 
-ERROR: "No start command found"
-SOLUTION: Ensure you have BOTH Procfile AND railway.json
-
-ERROR: "Build failed"
-SOLUTION: Check requirements.txt formatting (no extra spaces)
-
-ERROR: "App crashed"
-SOLUTION: Check logs, usually NLTK download issues (app has fallbacks)
-
-ERROR: "Port binding failed"
-SOLUTION: App uses $PORT environment variable (already configured)
-
-9. QUICK FILES CHECKLIST:
-□ app.py (this file)
-□ requirements.txt 
-□ Procfile
-□ railway.json
-□ .gitignore (optional)
-
-10. FEATURES INCLUDED:
-✅ VLSI & Embedded Skills Detection (100+ terms)
-✅ PDF, DOC, DOCX, TXT Support  
-✅ Smart Matching Algorithm (4-factor scoring)
-✅ Web Interface + REST API
-✅ Cloud Deployment Ready
-✅ Error Handling & Fallbacks
-✅ Team Collaboration Ready
-
-11. USAGE:
-- Web: Upload JD + profiles, get ranked results
-- API: POST /api/match with JSON data
-- Skills: Automatically detects technical skills
-- Matching: Skills(40%) + Experience(20%) + Education(10%) + Similarity(30%)
-
-12. POST-DEPLOYMENT:
-- Test with sample JD and profiles
-- Share URL with your team
-- Monitor via Railway dashboard
-- Scale up if needed (Railway auto-scales)
-
-If Railway still fails, the app works identically on Heroku, Render, or any Python hosting platform.
+The key is starting with minimal dependencies and adding more once basic deployment works!
 """
